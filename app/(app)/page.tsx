@@ -1,6 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "@/app/lib/firebase";
 
 type Contador = {
   id: string;
@@ -12,87 +23,59 @@ type Contador = {
 export default function ContadoresPage() {
   const [contadores, setContadores] = useState<Contador[]>([]);
 
-  // 🧩 Carrega contadores do localStorage
   useEffect(() => {
-    const salvos = localStorage.getItem("contadoresEndrigo");
-    if (salvos) {
-      const parsed = JSON.parse(salvos);
-      const restaurados = parsed.map((c: any) => ({
-        ...c,
-        dataInicial: new Date(c.dataInicial),
+    const ref = collection(db, "contadoresEndrigo");
+    const unsub = onSnapshot(ref, (snapshot) => {
+      const dados = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        nome: doc.data().nome,
+        mensagem: doc.data().mensagem,
+        dataInicial: doc.data().dataInicial?.toDate?.() ?? new Date(),
       }));
-      setContadores(restaurados);
-    } else {
-      // 👶 Um contador inicial
-      setContadores([
-        {
-          id: "endrigo",
-          nome: "Endrigo",
-          mensagem: "sem calar a boca 😆",
-          dataInicial: new Date("2025-10-23"),
-        },
-      ]);
-    }
+      setContadores(dados);
+    });
+
+    return () => unsub();
   }, []);
 
-  // 💾 Salva no localStorage sempre que mudar
-  useEffect(() => {
-    localStorage.setItem(
-      "contadoresEndrigo",
-      JSON.stringify(
-        contadores.map((c) => ({
-          ...c,
-          dataInicial: c.dataInicial.toISOString(),
-        }))
-      )
-    );
-  }, [contadores]);
-
   const calcularDias = (dataInicial: Date) => {
-    const hoje = new Date();
-    const diff = hoje.getTime() - dataInicial.getTime();
+    const diff = new Date().getTime() - dataInicial.getTime();
     return Math.floor(diff / (1000 * 60 * 60 * 24));
   };
 
-  const resetarContador = (id: string) => {
-    setContadores((prev) =>
-      prev.map((c) =>
-        c.id === id ? { ...c, dataInicial: new Date() } : c
-      )
-    );
-  };
-
-  const adicionarContador = () => {
+  const adicionarContador = async () => {
     const nome = prompt("Nome do contador:");
     if (!nome) return;
 
     const mensagem = prompt("Mensagem (ex: 'sem calar a boca 😆'):");
     if (!mensagem) return;
 
-    setContadores((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        nome,
-        mensagem,
-        dataInicial: new Date(),
-      },
-    ]);
+    await addDoc(collection(db, "contadoresEndrigo"), {
+      nome,
+      mensagem,
+      dataInicial: new Date(),
+      criadoEm: serverTimestamp(),
+    });
   };
 
-  const editarMensagem = (id: string) => {
+  const editarMensagem = async (id: string) => {
     const novaMensagem = prompt("Nova mensagem:");
     if (!novaMensagem) return;
-    setContadores((prev) =>
-      prev.map((c) =>
-        c.id === id ? { ...c, mensagem: novaMensagem } : c
-      )
-    );
+
+    await updateDoc(doc(db, "contadoresEndrigo", id), {
+      mensagem: novaMensagem,
+    });
   };
 
-  const removerContador = (id: string) => {
+  const resetarContador = async (id: string) => {
+    await updateDoc(doc(db, "contadoresEndrigo", id), {
+      dataInicial: new Date(),
+    });
+  };
+
+  const removerContador = async (id: string) => {
     if (confirm("Tem certeza que quer remover este contador?")) {
-      setContadores((prev) => prev.filter((c) => c.id !== id));
+      await deleteDoc(doc(db, "contadoresEndrigo", id));
     }
   };
 
@@ -110,7 +93,7 @@ export default function ContadoresPage() {
       }}
     >
       <h1 style={{ fontSize: "2rem", marginBottom: "1.5rem" }}>
-        🗓️ Contadores Personalizados
+        🗓️ Contadores Permanentes (Firebase)
       </h1>
 
       <div
@@ -123,11 +106,11 @@ export default function ContadoresPage() {
           maxWidth: "900px",
         }}
       >
-        {contadores.map((contador) => {
-          const dias = calcularDias(contador.dataInicial);
+        {contadores.map((c) => {
+          const dias = calcularDias(c.dataInicial);
           return (
             <div
-              key={contador.id}
+              key={c.id}
               style={{
                 backgroundColor: "#161b22",
                 border: "1px solid #30363d",
@@ -135,47 +118,26 @@ export default function ContadoresPage() {
                 padding: "1.5rem",
                 width: "260px",
                 textAlign: "center",
-                boxShadow: "0 0 10px rgba(0,0,0,0.2)",
-                transition: "transform 0.2s ease",
               }}
             >
-              <h2 style={{ marginBottom: "0.5rem" }}>{contador.nome}</h2>
-
-              <p style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>
-                {dias} dia{dias !== 1 ? "s" : ""} {contador.mensagem}
+              <h2>{c.nome}</h2>
+              <p style={{ fontSize: "1.1rem" }}>
+                {dias} dia{dias !== 1 ? "s" : ""} {c.mensagem}
               </p>
-
-              <p style={{ opacity: 0.7, fontSize: "0.9rem" }}>
-                Desde {contador.dataInicial.toLocaleDateString("pt-BR")}
+              <p style={{ opacity: 0.7 }}>
+                Desde {c.dataInicial.toLocaleDateString("pt-BR")}
               </p>
-
               <div
                 style={{
                   marginTop: "1rem",
                   display: "flex",
                   gap: "0.4rem",
                   justifyContent: "center",
-                  flexWrap: "wrap",
                 }}
               >
-                <button
-                  onClick={() => resetarContador(contador.id)}
-                  style={botaoEstilo("#238636")}
-                >
-                  🔄 Resetar
-                </button>
-                <button
-                  onClick={() => editarMensagem(contador.id)}
-                  style={botaoEstilo("#8957e5")}
-                >
-                  ✏️ Editar
-                </button>
-                <button
-                  onClick={() => removerContador(contador.id)}
-                  style={botaoEstilo("#da3633")}
-                >
-                  🗑️ Remover
-                </button>
+                <button onClick={() => resetarContador(c.id)}>🔄 Resetar</button>
+                <button onClick={() => editarMensagem(c.id)}>✏️ Editar</button>
+                <button onClick={() => removerContador(c.id)}>🗑️ Remover</button>
               </div>
             </div>
           );
@@ -185,25 +147,17 @@ export default function ContadoresPage() {
       <button
         onClick={adicionarContador}
         style={{
-          ...botaoEstilo("#2f81f7"),
           marginTop: "2rem",
-          fontSize: "1rem",
+          backgroundColor: "#2f81f7",
+          color: "white",
+          border: "none",
+          borderRadius: "6px",
+          padding: "0.6rem 1.2rem",
+          cursor: "pointer",
         }}
       >
         ➕ Adicionar contador
       </button>
     </main>
   );
-}
-
-function botaoEstilo(cor: string): React.CSSProperties {
-  return {
-    padding: "0.5rem 1rem",
-    backgroundColor: cor,
-    color: "white",
-    border: "none",
-    borderRadius: "6px",
-    cursor: "pointer",
-    transition: "background-color 0.2s ease",
-  };
 }
